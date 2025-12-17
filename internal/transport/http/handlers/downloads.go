@@ -17,26 +17,17 @@ type File struct {
 	URL string `json:"url"`
 }
 
-type CreateDownloadJobReq struct {
+type createDownloadJobReq struct {
 	Files   []File `json:"files"`
 	Timeout string `json:"timeout"`
 }
 
-type fileDTO struct {
-	URL    string `json:"url"`
-	FileID string `json:"file_id,omitempty"`
-	Error  *struct {
-		Code string `json:"code"`
-	} `json:"error,omitempty"`
+type createDownloadJobResp struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
 }
 
-type jobDTO struct {
-	ID     string    `json:"id"`
-	Status string    `json:"status"`
-	Files  []fileDTO `json:"files"`
-}
-
-func (req *CreateDownloadJobReq) Validate() error {
+func (req *createDownloadJobReq) Validate() error {
 	if err := validation.ValidateStruct(req,
 		validation.Field(&req.Files, validation.Required),
 		validation.Field(&req.Timeout, validation.Required),
@@ -47,7 +38,7 @@ func (req *CreateDownloadJobReq) Validate() error {
 }
 
 func (h *HTTPHandlers) CreateDownloadJob(w http.ResponseWriter, r *http.Request) {
-	var req CreateDownloadJobReq
+	var req createDownloadJobReq
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -77,16 +68,28 @@ func (h *HTTPHandlers) CreateDownloadJob(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.WriteHeader(http.StatusCreated)
-	if err := json.NewEncoder(w).Encode(struct {
-		ID     string `json:"id"`
-		Status string `json:"status"`
-	}{
+	if err := json.NewEncoder(w).Encode(createDownloadJobResp{
 		ID:     createdJob.ID,
 		Status: createdJob.Status.String(),
 	}); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+}
 
+type fileErrorDTO struct {
+	Code string `json:"code"`
+}
+
+type fileDTO struct {
+	URL    string        `json:"url"`
+	FileID string        `json:"file_id,omitempty"`
+	Error  *fileErrorDTO `json:"error,omitempty"`
+}
+
+type jobDTO struct {
+	ID     string    `json:"id"`
+	Status string    `json:"status"`
+	Files  []fileDTO `json:"files"`
 }
 
 func (h *HTTPHandlers) GetDownloadJob(w http.ResponseWriter, r *http.Request) {
@@ -99,30 +102,26 @@ func (h *HTTPHandlers) GetDownloadJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respObject := jobDTO{
+	respDTO := jobDTO{
 		ID:     job.ID,
 		Status: job.Status.String(),
 		Files:  make([]fileDTO, len(job.Items)),
 	}
 	for i, item := range job.Items {
-		var errDTO *struct {
-			Code string `json:"code"`
-		}
+		var errDTO fileErrorDTO
 		if item.Error != nil {
-			errDTO = &struct {
-				Code string `json:"code"`
-			}{
+			errDTO = fileErrorDTO{
 				Code: string(item.Error.Code),
 			}
 		}
-		respObject.Files[i] = fileDTO{
+		respDTO.Files[i] = fileDTO{
 			URL:    item.URL,
 			FileID: item.FileID,
-			Error:  errDTO,
+			Error:  &errDTO,
 		}
 	}
 
-	if err := json.NewEncoder(w).Encode(respObject); err != nil {
+	if err := json.NewEncoder(w).Encode(respDTO); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

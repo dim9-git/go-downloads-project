@@ -17,7 +17,7 @@ func NewDownloadJobMemoryRepository() *DownloadJobMemoryRepository {
 }
 
 func cloneJob(j entity.DownloadJob) entity.DownloadJob {
-	j.Items = append([]entity.DownlaodItem(nil), j.Items...)
+	j.Items = append([]entity.DownloadItem(nil), j.Items...)
 	return j
 }
 

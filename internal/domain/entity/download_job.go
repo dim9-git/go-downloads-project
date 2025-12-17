@@ -41,7 +41,7 @@ type DownloadItemError struct {
 	Code DownloadItemErrorCode
 }
 
-type DownlaodItem struct {
+type DownloadItem struct {
 	URL    string
 	FileID string
 	Error  *DownloadItemError
@@ -53,5 +53,5 @@ type DownloadJob struct {
 	UpdatedAt time.Time
 	Timeout   time.Duration
 	Status    DownloadJobStatus
-	Items     []DownlaodItem
+	Items     []DownloadItem
 }

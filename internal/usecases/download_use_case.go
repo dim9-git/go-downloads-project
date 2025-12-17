@@ -23,7 +23,7 @@ func NewDownloadUseCase() *DownloadUseCase {
 	}
 }
 
-func (u *DownloadUseCase) createJobEntity(duration time.Duration) entity.DownloadJob {
+func createJobEntity(duration time.Duration) entity.DownloadJob {
 	return entity.DownloadJob{
 		Status:    entity.Pending,
 		Timeout:   duration,
@@ -32,10 +32,25 @@ func (u *DownloadUseCase) createJobEntity(duration time.Duration) entity.Downloa
 	}
 }
 
-func (u *DownloadUseCase) StartJob(urls []string, duration time.Duration) (entity.DownloadJob, error) {
-	jobEntity := u.createJobEntity(duration)
+func fetchFile(ctx context.Context, client *http.Client, url string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), jobEntity.Timeout)
+	req.Header.Set("User-Agent", "go-school-downloader/1.0 (contact: tarek.fakhfakh@gmail.com)")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	return resp, nil
+}
+
+func (u *DownloadUseCase) runJob(job entity.DownloadJob, urls []string) entity.DownloadJob {
+
+	ctx, cancel := context.WithTimeout(context.Background(), job.Timeout)
 	defer cancel()
 
 	client := &http.Client{}
@@ -46,11 +61,6 @@ func (u *DownloadUseCase) StartJob(urls []string, duration time.Duration) (entit
 		err    error
 	}
 	resCh := make(chan res)
-
-	job, err := u.DownloadJobRepository.Create(jobEntity)
-	if err != nil {
-		return entity.DownloadJob{}, err
-	}
 
 	json.PrettyPrint(job)
 
@@ -66,19 +76,17 @@ func (u *DownloadUseCase) StartJob(urls []string, duration time.Duration) (entit
 				return
 			}
 
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, goURL, nil)
+			resp, err := fetchFile(ctx, client, goURL)
 			if err != nil {
 				resCh <- res{url: goURL, err: err}
 				return
 			}
 
-			req.Header.Set("User-Agent", "go-school-downloader/1.0 (contact: tarek.fakhfakh@gmail.com)")
-			resp, err := client.Do(req)
-			if err != nil {
-				resCh <- res{url: goURL, err: err}
-				return
-			}
 			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				resCh <- res{url: goURL, err: err}
+			}
 
 			data, err := io.ReadAll(resp.Body)
 			if err != nil {
@@ -115,12 +123,12 @@ func (u *DownloadUseCase) StartJob(urls []string, duration time.Duration) (entit
 			i = len(urls)
 		case res := <-resCh:
 			if res.err != nil && res.fileID == "" {
-				job.Items = append(job.Items, entity.DownlaodItem{
+				job.Items = append(job.Items, entity.DownloadItem{
 					URL:   res.url,
 					Error: &entity.DownloadItemError{Code: entity.ErrorUnknown},
 				})
 			} else if res.fileID != "" {
-				job.Items = append(job.Items, entity.DownlaodItem{
+				job.Items = append(job.Items, entity.DownloadItem{
 					URL:    res.url,
 					FileID: res.fileID,
 				})
@@ -130,6 +138,19 @@ func (u *DownloadUseCase) StartJob(urls []string, duration time.Duration) (entit
 
 	job.Status = entity.Done
 	_ = u.DownloadJobRepository.Update(job)
+
+	return job
+}
+
+func (u *DownloadUseCase) StartJob(urls []string, duration time.Duration) (entity.DownloadJob, error) {
+	jobEntity := createJobEntity(duration)
+
+	job, err := u.DownloadJobRepository.Create(jobEntity)
+	if err != nil {
+		return entity.DownloadJob{}, err
+	}
+
+	go u.runJob(job, urls)
 
 	return job, nil
 }
