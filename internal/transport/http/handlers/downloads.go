@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"gin-quickstart/internal/domain/entity"
 	"io"
 	"net/http"
 	"strconv"
@@ -21,6 +20,20 @@ type File struct {
 type CreateDownloadJobReq struct {
 	Files   []File `json:"files"`
 	Timeout string `json:"timeout"`
+}
+
+type fileDTO struct {
+	URL    string `json:"url"`
+	FileID string `json:"file_id,omitempty"`
+	Error  *struct {
+		Code string `json:"code"`
+	} `json:"error,omitempty"`
+}
+
+type jobDTO struct {
+	ID     string    `json:"id"`
+	Status string    `json:"status"`
+	Files  []fileDTO `json:"files"`
 }
 
 func (req *CreateDownloadJobReq) Validate() error {
@@ -46,7 +59,7 @@ func (h *HTTPHandlers) CreateDownloadJob(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	d, err := time.ParseDuration(req.Timeout)
+	duration, err := time.ParseDuration(req.Timeout)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -57,15 +70,7 @@ func (h *HTTPHandlers) CreateDownloadJob(w http.ResponseWriter, r *http.Request)
 		urls[i] = f.URL
 	}
 
-	job := entity.DownloadJob{
-		CreatedAt:     time.Now(),
-		UpdatedAt:     time.Now(),
-		Timeout:       d,
-		Status:        entity.Pending,
-		RequestedURLs: urls,
-	}
-
-	createdJob, err := h.DownloadUseCase.RunJob(job)
+	createdJob, err := h.DownloadUseCase.StartJob(urls, duration)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -94,7 +99,13 @@ func (h *HTTPHandlers) GetDownloadJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := json.NewEncoder(w).Encode(job); err != nil {
+	respObject := jobDTO{
+		ID:     job.ID,
+		Status: job.Status.String(),
+		Files:  make([]fileDTO, len(job.Items)),
+	}
+
+	if err := json.NewEncoder(w).Encode(respObject); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

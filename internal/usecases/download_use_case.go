@@ -2,13 +2,13 @@ package usecases
 
 import (
 	"context"
-	"fmt"
 	"gin-quickstart/internal/domain/entity"
 	"gin-quickstart/internal/domain/ports"
 	repository "gin-quickstart/internal/infra/repository/memory"
 	"gin-quickstart/pkg/json"
 	"io"
 	"net/http"
+	"time"
 )
 
 type DownloadUseCase struct {
@@ -23,9 +23,28 @@ func NewDownloadUseCase() *DownloadUseCase {
 	}
 }
 
-func (u *DownloadUseCase) RunJob(job entity.DownloadJob) (entity.DownloadJob, error) {
+func (u *DownloadUseCase) createJobEntity(duration time.Duration) entity.DownloadJob {
+	return entity.DownloadJob{
+		Status:    entity.Pending,
+		Timeout:   duration,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+}
+
+func (u *DownloadUseCase) StartJob(urls []string, duration time.Duration) (entity.DownloadJob, error) {
+	job := u.createJobEntity(duration)
+
 	ctx, cancel := context.WithTimeout(context.Background(), job.Timeout)
 	defer cancel()
+
+	client := &http.Client{}
+	sem := make(chan struct{}, 10)
+	type res struct {
+		fileID string
+		err    error
+	}
+	resCh := make(chan res)
 
 	createdJob, err := u.DownloadJobRepository.Create(job)
 	if err != nil {
@@ -34,65 +53,77 @@ func (u *DownloadUseCase) RunJob(job entity.DownloadJob) (entity.DownloadJob, er
 
 	json.PrettyPrint(createdJob)
 
-	// job.Status = entity.Running
-	// if err := u.DownloadJobRepository.Update(job); err != nil {
-	// 	return err
-	// }
+	for _, url := range urls {
 
-	for _, url := range job.RequestedURLs {
-		if err := ctx.Err(); err != nil {
-			return entity.DownloadJob{}, err
-		}
+		go func(goURL string) {
+			sem <- struct{}{}
+			defer func() { <-sem }()
 
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-		if err != nil {
-			return entity.DownloadJob{}, err
-		}
+			// if timeout, return error
+			if err := ctx.Err(); err != nil {
+				resCh <- res{err: err}
+				return
+			}
 
-		req.Header.Set("User-Agent", "go-school-downloader/1.0 (contact: tarek.fakhfakh@gmail.com)")
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, goURL, nil)
+			if err != nil {
+				resCh <- res{err: err}
+				return
+			}
 
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			return entity.DownloadJob{}, err
-		}
-		defer resp.Body.Close()
+			req.Header.Set("User-Agent", "go-school-downloader/1.0 (contact: tarek.fakhfakh@gmail.com)")
+			resp, err := client.Do(req)
+			if err != nil {
+				resCh <- res{err: err}
+				return
+			}
+			defer resp.Body.Close()
 
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			return entity.DownloadJob{}, fmt.Errorf("upstream returned %s", resp.Status)
-		}
+			data, err := io.ReadAll(resp.Body)
+			if err != nil {
+				resCh <- res{err: err}
+				return
+			}
 
-		data, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return entity.DownloadJob{}, err
-		}
+			file := entity.File{
+				Metadata: entity.FileMetadata{
+					MimeType: resp.Header.Get("Content-Type"),
+					Size:     resp.ContentLength,
+				},
+				Data: data,
+			}
 
-		file := entity.File{
-			Metadata: entity.FileMetadata{
-				MimeType: resp.Header.Get("Content-Type"),
-				Size:     resp.ContentLength,
-			},
-			Data: data,
-		}
+			fileID, err := u.FileRepository.Put(file)
+			if err != nil {
+				resCh <- res{err: err}
+				return
+			}
 
-		fileID, err := u.FileRepository.Put(file)
-		if err != nil {
-			return entity.DownloadJob{}, err
-		}
+			resCh <- res{fileID: fileID, err: nil}
 
-		fmt.Println("File ID: ", fileID)
-
-		createdJob.FileIDs = append(createdJob.FileIDs, fileID)
-
-		if err := u.DownloadJobRepository.Update(createdJob); err != nil {
-			return entity.DownloadJob{}, err
-		}
+		}(url)
 
 	}
 
-	createdJob.Status = entity.Done
-	if err := u.DownloadJobRepository.Update(createdJob); err != nil {
-		return entity.DownloadJob{}, err
+	job.Status = entity.Running
+	_ = u.DownloadJobRepository.Update(job)
+
+	for i := 0; i < len(urls); i++ {
+		select {
+		case <-ctx.Done():
+			i = len(urls)
+		case res := <-resCh:
+			if res.err != nil && res.fileID == "" {
+				createdJob.Items = append(createdJob.Items, entity.DownlaodItem{
+					URL:    urls[i],
+					FileID: res.fileID,
+				})
+			}
+		}
 	}
+
+	job.Status = entity.Done
+	_ = u.DownloadJobRepository.Update(job)
 
 	return createdJob, nil
 }

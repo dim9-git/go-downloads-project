@@ -29,12 +29,29 @@ func (s *DownloadJobStatus) String() string {
 	}
 }
 
+type DownloadItemErrorCode string
+
+const (
+	ErrorTimeout DownloadItemErrorCode = "TIMEOUT"
+	ErrorHTTP    DownloadItemErrorCode = "HTTP_ERROR"
+	ErrorUnknown DownloadItemErrorCode = "UNKNOWN"
+)
+
+type DownloadItemError struct {
+	Code DownloadItemErrorCode
+}
+
+type DownlaodItem struct {
+	URL    string
+	FileID string
+	Error  *DownloadItemError
+}
+
 type DownloadJob struct {
-	ID            string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	Timeout       time.Duration
-	Status        DownloadJobStatus
-	RequestedURLs []string
-	FileIDs       []string
+	ID        string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	Timeout   time.Duration
+	Status    DownloadJobStatus
+	Items     []DownlaodItem
 }
