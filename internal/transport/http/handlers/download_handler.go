@@ -61,17 +61,21 @@ func (h *HTTPHandlers) CreateDownloadJob(w http.ResponseWriter, r *http.Request)
 		urls[i] = f.URL
 	}
 
-	createdJob, err := h.DownloadUseCase.StartJob(urls, duration)
+	rCtx := r.Context()
+
+	createdJob, err := h.DownloadUseCase.StartJob(rCtx, duration, urls)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	w.WriteHeader(http.StatusCreated)
-	if err := json.NewEncoder(w).Encode(createDownloadJobResp{
+	resDTO := createDownloadJobResp{
 		ID:     createdJob.ID,
 		Status: createdJob.Status.String(),
-	}); err != nil {
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	if err := json.NewEncoder(w).Encode(resDTO); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
@@ -96,7 +100,9 @@ func (h *HTTPHandlers) GetDownloadJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "jobID")
 	fmt.Println("/downloads/{jobID} Job ID: ", jobID)
 
-	job, err := h.DownloadUseCase.GetJob(jobID)
+	rCtx := r.Context()
+
+	job, err := h.DownloadUseCase.GetJob(rCtx, jobID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -108,16 +114,16 @@ func (h *HTTPHandlers) GetDownloadJob(w http.ResponseWriter, r *http.Request) {
 		Files:  make([]fileDTO, len(job.Items)),
 	}
 	for i, item := range job.Items {
-		var errDTO fileErrorDTO
+		var errDTO *fileErrorDTO
 		if item.Error != nil {
-			errDTO = fileErrorDTO{
+			errDTO = &fileErrorDTO{
 				Code: string(item.Error.Code),
 			}
 		}
 		respDTO.Files[i] = fileDTO{
 			URL:    item.URL,
 			FileID: item.FileID,
-			Error:  &errDTO,
+			Error:  errDTO,
 		}
 	}
 
@@ -132,7 +138,9 @@ func (h *HTTPHandlers) GetFile(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "jobID")
 	fileID := chi.URLParam(r, "fileID")
 
-	file, err := h.DownloadUseCase.GetFile(jobID, fileID)
+	rCtx := r.Context()
+
+	file, err := h.DownloadUseCase.GetFile(rCtx, jobID, fileID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

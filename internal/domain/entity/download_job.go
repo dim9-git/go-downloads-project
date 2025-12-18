@@ -5,8 +5,7 @@ import "time"
 type DownloadJobStatus int
 
 const (
-	Pending DownloadJobStatus = iota
-	Running
+	Process DownloadJobStatus = iota
 	Done
 	Failed
 	Canceled
@@ -14,18 +13,16 @@ const (
 
 func (s *DownloadJobStatus) String() string {
 	switch *s {
-	case Pending:
-		return "pending"
-	case Running:
-		return "running"
+	case Process:
+		return "PROCESS"
 	case Done:
-		return "done"
+		return "DONE"
 	case Failed:
-		return "failed"
+		return "FAILED"
 	case Canceled:
-		return "canceled"
+		return "CANCELED"
 	default:
-		return "unknown"
+		return "UNKNOWN"
 	}
 }
 
