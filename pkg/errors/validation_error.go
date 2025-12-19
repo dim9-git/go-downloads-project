@@ -24,7 +24,7 @@ func (e *ValidationError) Error() string {
 
 	errors := make([]string, 0, len(e.Errors))
 	for _, err := range e.Errors {
-		errors = append(errors, fmt.Sprintf("%s: %s", err.Name, err.Reason))
+		errors = append(errors, fmt.Sprintf("%s %s", err.Name, err.Reason))
 	}
 	return fmt.Sprintf("Validation error: %s", strings.Join(errors, ", "))
 }
